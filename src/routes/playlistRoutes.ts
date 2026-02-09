@@ -173,4 +173,28 @@ router.delete("/:id", protect, async (req, res) => {
   });
 });
 
+// Update avatar config (CMS)
+router.patch("/:id/avatar-config", protect, async (req, res) => {
+  const { avatarConfig } = req.body;
+
+  if (!avatarConfig || typeof avatarConfig !== "object") {
+    return res.status(400).json({ message: "avatarConfig object is required" });
+  }
+
+  const updated = await Kiosk.findByIdAndUpdate(
+    req.params.id,
+    { avatarConfig },
+    { new: true }
+  );
+
+  if (!updated) return res.status(404).json({ message: "Kiosk not found" });
+
+  // notify devices showing this kiosk to refetch config if your kiosk UI shows avatar name/tone
+  const devices = await Device.find({ activeKioskId: updated._id }).select("deviceKey");
+  devices.forEach(d => emitDeviceUpdate(d.deviceKey));
+
+  res.json(updated.avatarConfig);
+});
+
+
 export default router;

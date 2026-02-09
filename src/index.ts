@@ -1,8 +1,9 @@
+import dotenv from "dotenv";
+dotenv.config();
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
 import cors from "cors";
-import dotenv from "dotenv";
 import { initSocket } from "./socket";
 
 import authRoutes from "./routes/authRoutes";
@@ -10,9 +11,9 @@ import mediaRoutes from "./routes/mediaRoutes";
 import kioskRoutes from "./routes/playlistRoutes";
 import deviceRoutes from "./routes/deviceRoutes";
 import announcementRoutes from "./routes/announcementRoutes";
+import avatarRoutes from "./routes/avatarRoutes";
 
 
-dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -35,6 +36,7 @@ app.use("/media", mediaRoutes);
 app.use("/kiosk", kioskRoutes);
 app.use("/devices", deviceRoutes);
 app.use("/announcements", announcementRoutes);
+app.use("/avatar", avatarRoutes);
 
 server.listen(process.env.PORT, () => {
   console.log(`Server running on ${process.env.PORT}`);
