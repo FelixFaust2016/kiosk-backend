@@ -1,26 +1,57 @@
 import express from "express";
 import crypto from "crypto";
+import mongoose from "mongoose";
+
 import Device from "../models/Device";
 import Kiosk from "../models/Playlist";
 import Announcement from "../models/Announcements";
+
 import { protect } from "../middleware/auth";
 import { emitDeviceUpdate } from "../socket";
 
 const router = express.Router();
 
+/**
+ * Helper to choose a default kiosk id:
+ * 1) DEFAULT_KIOSK_ID env var (if valid + exists)
+ * 2) otherwise first kiosk by name
+ */
+async function pickDefaultKioskId(): Promise<mongoose.Types.ObjectId | null> {
+  const envId = process.env.DEFAULT_KIOSK_ID;
+
+  if (envId && mongoose.isValidObjectId(envId)) {
+    const exists = await Kiosk.findById(envId).select("_id");
+    if (exists) return exists._id as any;
+  }
+
+  const first = await Kiosk.findOne().sort({ name: 1 }).select("_id");
+  return first ? (first._id as any) : null;
+}
+
 // KIOSK APP: register device (first boot)
 // returns deviceKey that the kiosk app stores in localStorage
+// ✅ assigns a default kiosk immediately if one exists
 router.post("/register", async (req, res) => {
   const name = req.body?.name || "Kiosk Screen";
   const deviceKey = crypto.randomBytes(16).toString("hex");
 
-  const device = await Device.create({ name, deviceKey });
+  const activeKioskId = await pickDefaultKioskId();
+
+  const device = await Device.create({
+    name,
+    deviceKey,
+    activeKioskId: activeKioskId ?? undefined
+  });
+
   res.json(device);
 });
 
 // CMS: list devices
 router.get("/", protect, async (_req, res) => {
-  const devices = await Device.find().populate("activeKioskId").sort({ lastSeenAt: -1 });
+  const devices = await Device.find()
+    .populate("activeKioskId")
+    .sort({ lastSeenAt: -1 });
+
   res.json(devices);
 });
 
@@ -31,6 +62,26 @@ router.get("/:deviceKey/active", async (req, res) => {
 
   // heartbeat
   device.lastSeenAt = new Date();
+
+  // ✅ self-heal: if no activeKioskId, assign fallback and save
+  if (!device.activeKioskId) {
+    let fallback = undefined as any;
+
+    if (process.env.DEFAULT_KIOSK_ID) {
+      const exists = await Kiosk.findById(process.env.DEFAULT_KIOSK_ID).select("_id");
+      if (exists) fallback = exists._id;
+    }
+
+    if (!fallback) {
+      const first = await Kiosk.findOne().sort({ name: 1 }).select("_id");
+      if (first) fallback = first._id;
+    }
+
+    if (fallback) {
+      device.activeKioskId = fallback;
+    }
+  }
+
   await device.save();
 
   const now = new Date();
@@ -45,18 +96,16 @@ router.get("/:deviceKey/active", async (req, res) => {
     $or: [
       { targetType: "ALL" },
       { targetType: "DEVICES", deviceKeys: device.deviceKey },
-      ...(device.activeKioskId
-        ? [{ targetType: "KIOSKS", kioskIds: device.activeKioskId }]
-        : [])
+      ...(device.activeKioskId ? [{ targetType: "KIOSKS", kioskIds: device.activeKioskId }] : [])
     ]
   }).sort({ createdAt: -1 });
 
-  // if no kiosk assigned
+  // if still no kiosk assigned (e.g. no kiosks exist in DB)
   if (!device.activeKioskId) {
     return res.json({
       deviceKey: device.deviceKey,
       activeKiosk: null,
-      announcements: announcements.map((a) => ({
+      announcements: announcements.map((a: any) => ({
         _id: a._id,
         title: a.title,
         text: a.text,
@@ -67,11 +116,16 @@ router.get("/:deviceKey/active", async (req, res) => {
 
   // fetch kiosk config
   const kiosk = await Kiosk.findById(device.activeKioskId).populate("media.mediaId");
+
+  // kiosk was deleted or invalid reference → clear assignment
   if (!kiosk) {
+    device.activeKioskId = undefined as any;
+    await device.save();
+
     return res.json({
       deviceKey: device.deviceKey,
       activeKiosk: null,
-      announcements: announcements.map((a) => ({
+      announcements: announcements.map((a: any) => ({
         _id: a._id,
         title: a.title,
         text: a.text,
@@ -81,11 +135,11 @@ router.get("/:deviceKey/active", async (req, res) => {
   }
 
   // build playlist
-  const sorted = [...kiosk.media].sort((a, b) => a.order - b.order);
+  const sorted = [...kiosk.media].sort((a: any, b: any) => a.order - b.order);
   const playlist = sorted.map((item: any) => ({
     order: item.order,
     duration: item.duration ?? null,
-    effectiveDuration: item.duration ?? kiosk.mediaDisplayTime,
+    effectiveDuration: item.duration ?? kiosk.mediaDisplayTime, // keep your field name
     media: item.mediaId
   }));
 
@@ -97,7 +151,7 @@ router.get("/:deviceKey/active", async (req, res) => {
       defaultDisplayTime: kiosk.mediaDisplayTime,
       playlist
     },
-    announcements: announcements.map((a) => ({
+    announcements: announcements.map((a: any) => ({
       _id: a._id,
       title: a.title,
       text: a.text,
@@ -110,12 +164,16 @@ router.get("/:deviceKey/active", async (req, res) => {
 router.post("/:deviceKey/assign", protect, async (req, res) => {
   const { kioskId } = req.body;
 
-  const kiosk = await Kiosk.findById(kioskId);
+  if (!mongoose.isValidObjectId(kioskId)) {
+    return res.status(400).json({ message: "Invalid kioskId" });
+  }
+
+  const kiosk = await Kiosk.findById(kioskId).select("_id");
   if (!kiosk) return res.status(404).json({ message: "Kiosk not found" });
 
   const device = await Device.findOneAndUpdate(
     { deviceKey: req.params.deviceKey },
-    { activeKioskId: kioskId },
+    { activeKioskId: kiosk._id },
     { new: true }
   );
 
