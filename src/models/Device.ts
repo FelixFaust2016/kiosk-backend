@@ -10,7 +10,7 @@ export interface IDevice extends Document {
 const deviceSchema = new mongoose.Schema<IDevice>({
   name: { type: String, required: true },
   deviceKey: { type: String, required: true, unique: true },
-  activeKioskId: { type: mongoose.Schema.Types.ObjectId, ref: "Kiosk" },
+  activeKioskId: { type: mongoose.Schema.Types.ObjectId, ref: "Playlist" },
   lastSeenAt: { type: Date, default: Date.now }
 });
 

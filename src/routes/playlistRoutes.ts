@@ -18,14 +18,14 @@ router.get("/", protect, async (_req, res) => {
       .slice(0, 5)
       .map((item: any) => ({
         order: item.order,
-        effectiveDuration: item.duration ?? k.defaultDisplayTime,
+        effectiveDuration: item.duration ?? k.mediaDisplayTime,
         media: item.mediaId,
       }));
 
     return {
       _id: k._id,
       name: k.name,
-      defaultDisplayTime: k.defaultDisplayTime,
+      mediaDisplayTime: k.mediaDisplayTime,
       playlistCount: k.media.length,
       playlistPreview: preview,
     };
@@ -51,7 +51,8 @@ router.get("/:id", async (req, res) => {
   res.json({
     _id: kiosk._id,
     name: kiosk.name,
-    defaultDisplayTime: kiosk.mediaDisplayTime,
+    mediaDisplayTime: kiosk.mediaDisplayTime,
+    avatarConfig: kiosk.avatarConfig,
     playlist,
   });
 });
@@ -75,7 +76,7 @@ router.post("/:id/default-display-time", protect, async (req, res) => {
 
   const updated = await Kiosk.findByIdAndUpdate(
     req.params.id,
-    { defaultDisplayTime: time },
+    { mediaDisplayTime: time },
     { new: true }
   );
 
@@ -153,7 +154,9 @@ router.delete("/:id", protect, async (req, res) => {
   if (!kiosk) return res.status(404).json({ message: "Kiosk not found" });
 
   // Find devices currently assigned to this kiosk
-  const devices = await Device.find({ activeKioskId: kiosk._id }).select("deviceKey");
+  const devices = await Device.find({ activeKioskId: kiosk._id }).select(
+    "deviceKey"
+  );
 
   // Unassign this kiosk from those devices
   await Device.updateMany(
@@ -165,35 +168,32 @@ router.delete("/:id", protect, async (req, res) => {
   await kiosk.deleteOne();
 
   // Notify affected devices to refresh
-  devices.forEach(d => emitDeviceUpdate(d.deviceKey));
+  devices.forEach((d) => emitDeviceUpdate(d.deviceKey));
 
   res.json({
     message: "Kiosk deleted",
-    unassignedDevices: devices.map(d => d.deviceKey)
+    unassignedDevices: devices.map((d) => d.deviceKey),
   });
 });
 
 // Update avatar config (CMS)
 router.patch("/:id/avatar-config", protect, async (req, res) => {
   const { avatarConfig } = req.body;
-
   if (!avatarConfig || typeof avatarConfig !== "object") {
     return res.status(400).json({ message: "avatarConfig object is required" });
   }
 
-  const updated = await Kiosk.findByIdAndUpdate(
-    req.params.id,
-    { avatarConfig },
-    { new: true }
-  );
+  const kiosk = await Kiosk.findById(req.params.id);
+  if (!kiosk) return res.status(404).json({ message: "Kiosk not found" });
 
-  if (!updated) return res.status(404).json({ message: "Kiosk not found" });
+  kiosk.avatarConfig = {
+    ...(kiosk.avatarConfig || {}),
+    ...avatarConfig
+  };
 
-  // notify devices showing this kiosk to refetch config if your kiosk UI shows avatar name/tone
-  const devices = await Device.find({ activeKioskId: updated._id }).select("deviceKey");
-  devices.forEach(d => emitDeviceUpdate(d.deviceKey));
+  await kiosk.save();
 
-  res.json(updated.avatarConfig);
+  res.json(kiosk.avatarConfig);
 });
 
 
