@@ -58,10 +58,6 @@ Admin CMS → Backend API → MongoDB
 - Stateless CMS authentication
 - Secures protected admin routes (media, kiosk edits, announcements)
 
-## Three.js + React Three Fiber
-- 3D avatar rendering
-- Real-time animation inside kiosk client
-
 ## ElevenLabs
 - High-quality AI voice generation
 - Powers animated assistant speech
