@@ -43,21 +43,16 @@ router.patch("/:id", protect, async (req, res) => {
   res.json(updated);
 });
 
-// Delete media:
-// - remove from kiosks playlists
-// - delete local file
-// - notify devices whose active kiosk is impacted
+
 router.delete("/:id", protect, async (req, res) => {
   const media = await Media.findById(req.params.id);
   if (!media) return res.status(404).json({ message: "Media not found" });
 
-  // kiosks that reference this media
   const affectedKiosks = await Kiosk.find({ "media.mediaId": media._id }).select("_id");
 
-  // remove from all kiosks
   await Kiosk.updateMany({}, { $pull: { media: { mediaId: media._id } } });
 
-  // delete local file
+
   const filename = media.url.split("/uploads/")[1];
   if (filename) {
     const filepath = path.join(process.cwd(), "uploads", filename);
@@ -66,7 +61,6 @@ router.delete("/:id", protect, async (req, res) => {
 
   await media.deleteOne();
 
-  // devices whose activeKioskId is affected should refresh
   const kioskIds = affectedKiosks.map(k => k._id);
   const devices = await Device.find({ activeKioskId: { $in: kioskIds } }).select("deviceKey");
   devices.forEach(d => emitDeviceUpdate(d.deviceKey));

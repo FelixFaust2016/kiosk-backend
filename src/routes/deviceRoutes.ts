@@ -11,11 +11,6 @@ import { emitDeviceUpdate } from "../socket";
 
 const router = express.Router();
 
-/**
- * Helper to choose a default kiosk id:
- * 1) DEFAULT_KIOSK_ID env var (if valid + exists)
- * 2) otherwise first kiosk by name
- */
 async function pickDefaultKioskId(): Promise<mongoose.Types.ObjectId | null> {
   const envId = process.env.DEFAULT_KIOSK_ID;
 
@@ -29,8 +24,6 @@ async function pickDefaultKioskId(): Promise<mongoose.Types.ObjectId | null> {
 }
 
 // KIOSK APP: register device (first boot)
-// returns deviceKey that the kiosk app stores in localStorage
-// ✅ assigns a default kiosk immediately if one exists
 router.post("/register", async (req, res) => {
   const name = req.body?.name || "Kiosk Screen";
   const deviceKey = crypto.randomBytes(16).toString("hex");
